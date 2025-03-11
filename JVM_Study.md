@@ -21,6 +21,86 @@ class B extends A {
 }
 ```
 ---
+### class A는 어떤 식으로 로드되는지
+
+#### 1. Class A를 javac를 사용해 바이트코드로 변환
+   - javac A.java 명령어를 실행하면, Java 컴파일러가 A.java 소스 코드를 A.class 바이트코드로 변환한다.
+   - A.class 파일은 바이트코드로 변환된 결과이며, JVM이 실행할 수 있는 포맷이다.
+
+#### 2. JVM이 A.class 파일이 로드되었는지 확인
+   - java A 를 실행하면 운영체제가 java 실행 파일을 찾아 JVM 프로세스를 시작한다.
+   - JVM은 먼저 메서드 영역(Method Area)에 A 클래스가 이미 로드되어 있는지 확인한다.
+   - 이미 로드되어 있다면 다시 로드하지 않는다.
+   - 로드되지 않았다면, ClassLoader 를 통해 A.class 를 찾는다.
+   - 만약 A.class 파일이 존재하지 않는다면 ClassNotFoundException 또는 NoClassDefFoundError 가 발생한다.
+
+#### 3. 클래스로더가 A.class 파일을 로드 (ClassLoader 단계)
+   - Bootstrap ClassLoader (최상위 클래스로더)가 java.lang.* 같은 표준 라이브러리를 먼저 로드한다.
+   - 하지만, 이미 로드된 클래스라면 다시 로드하지 않는다.
+   - Application ClassLoader 가 A.class 파일을 찾아 로드한다.
+   - A.class 파일을 읽어 들이고, 매직 넘버(CAFEBABE)를 확인하여 유효한 바이트코드인지 검사한다.
+   - A.class 파일을 메서드 영역(Method Area)에 적재한다.
+
+#### 4. 클래스 로딩 수행 (Method Area에 클래스 정보 적재)
+   - 상수 풀(Constant Pool) 적재
+     - 기본 타입 리터럴 (int, String, long 등)
+     - 메서드명, 클래스명, 변수명 등의 심볼 정보 (<init>, A, main, B 등)
+   - 메타데이터(Class Metadata) 적재
+     - 접근 플래그(Access Flag) (public, private, final 등)
+     - 부모 클래스(Super Class) 정보 (java.lang.Object 또는 B가 상속받는 A)
+     - 인터페이스 목록(Interfaces)
+     - 필드 정보(Fields) (정적/비정적 변수)
+     - 메서드 정보(Methods) (정적/비정적 메서드)
+     - 속성 정보(Attributes) (애노테이션 등)
+
+#### 5. 링킹 수행 (Linking)
+   - 검증(Verify)
+     - JVM이 A.class 파일의 바이트코드를 해석하여 문법 및 유효성을 검사한다.
+     - 바이트코드가 변조되지 않았는지, 참조되는 클래스가 존재하는지 확인한다.
+   - 준비(Prepare)
+     - Static 변수 생성 및 기본값으로 초기화 (0, null 등)
+     - private static C c; 는 이 단계에서 null 로 초기화된다.
+   - 해석(Resolve)
+     - 상수 풀(Constant Pool)의 심벌 참조(Symbolic Reference)를 메모리 참조(Direct Reference)로 변환
+     - 메서드 호출 시 필요한 참조들을 실제 메모리 주소로 변환한다.
+
+#### 6. 초기화 수행 (Initialization)
+   - Static 변수의 실제 값 할당
+     - private static C c = new C(); 실행됨 → C 객체가 Heap 영역에 생성되고, c 변수에 참조값이 저장됨.
+     - private static int i = -1; 등의 정적 변수들이 초기화됨.
+   - Static 블록 실행 (클래스 내에 존재하는 경우)
+     - 클래스 내에 static {} 블록이 있다면 실행된다.
+
+### 7. main() 메서드 실행을 위한 준비
+   - PC 레지스터(Program Counter Register)가 main() 메서드의 첫 번째 바이트코드 명령어를 가리킨다.
+   - JVM Stack에 main() 메서드의 스택 프레임(Stack Frame)이 생성된다.
+   - 메서드 실행을 시작하며, 바이트코드를 해석 & 실행한다.
+
+#### 8. new A() 실행 시 JVM이 수행하는 과정
+   - JVM이 A.class 가 이미 로드되었는지 확인한다.
+     - A 클래스가 이미 메서드 영역(Method Area)에 존재하므로 다시 로드하지 않는다.
+   - Heap 영역에 A 객체 생성
+     - 객체의 모든 인스턴스 변수(멤버 변수)가 기본값(null, 0) 으로 초기화됨.
+   - 필드 초기화 수행
+     - private final String a = "ABC"; 실행됨 → "ABC" 값으로 변경됨.
+     - private final int ii = 1; 실행됨 → 1 값으로 변경됨.
+   - 생성자 호출
+     - 생성자 실행 전에 부모 클래스(Object)의 생성자가 먼저 호출됨.
+
+#### 9. new B() 실행 시 부모 클래스(A) 처리 방식
+   - JVM이 B.class 가 이미 로드되었는지 확인한다.
+     - 만약 처음 로드되는 경우, ClassLoader 를 통해 B.class 를 로드.
+     - B 클래스의 메타데이터가 메서드 영역에 저장되며, superclass A 정보를 포함한다.
+   - B의 부모 클래스(A)가 로드되었는지 확인
+     - 이미 A 클래스가 로드되어 있다면, 다시 로드하지 않고 기본값만 초기화 한다.
+   - Heap 영역에 B 객체 생성
+     - 모든 인스턴스 변수(멤버 변수)가 기본값(null, 0) 으로 초기화됨.
+   - 부모 클래스(A)의 생성자 호출
+     - B 클래스의 생성자는 먼저 부모 클래스의 생성자를 호출(super()) 한 후 실행됨.
+   - B 클래스의 생성자 호출
+     - 자신의 필드를 초기화하면서 객체가 완전히 초기화됨.
+     
+---
 
 ## JVM의 주요 구성 요소
 
@@ -149,4 +229,4 @@ JVM이 바이트코드를 실행하는 핵심 모듈이다.
 
 ---
 ### 내가 생각한 JVM 메모리 구조 및 흐름
-![](/image/JVM.jpeg)
+<img src="/image/JVM.jpeg" alt="JVM 메모리 구조" width="700" height="700">
