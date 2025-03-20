@@ -229,4 +229,4 @@ JVM이 바이트코드를 실행하는 핵심 모듈이다.
 
 ---
 ### 내가 생각한 JVM 메모리 구조 및 흐름
-<img src="/image/JVM.jpeg" alt="JVM 메모리 구조" width="700" height="700">
+<img src="/JVM/image/JVM.jpeg" alt="JVM 메모리 구조" width="700" height="700">
