@@ -1,5 +1,17 @@
 # HashMap Put 파해치기
 
+## 📑 목차
+- [HashMap 클래스파일 주석 번역](#hashmap-클래스파일-주석-번역)
+- [HashMap 필드변수 및 생성자](#hashmap-필드변수-및-생성자)
+- [Put 메서드](#put-메서드)
+- [hashkey 동작](#hashkey-동작)
+- [putVal 동작](#putvalint-hash-k-key-v-value-boolean-onlyifabsent-boolean-evict-동작)
+- [resize 동작](#resize-동작)
+- [putTreeVal 동작](#puttreeval-동작)
+- [최종 정리](#최종-정리)
+
+---
+
 ### HashMap 클래스파일 주석 번역
 >
 > Map 인터페이스를 기반으로 한 해시 테이블 기반 구현체입니다.
