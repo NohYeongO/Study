@@ -7,7 +7,6 @@
 - [hashkey 동작](#hashkey-동작)
 - [putVal 동작](#putvalint-hash-k-key-v-value-boolean-onlyifabsent-boolean-evict-동작)
 - [resize 동작](#resize-동작)
-- [putTreeVal 동작](#puttreeval-동작)
 - [최종 정리](#최종-정리)
 
 ---
@@ -98,6 +97,12 @@
 ---
 
 ## HashMap 필드변수 및 생성자
+
+비관적락 
+
+낙관적락
+
+분산락
 
 ```java
 /**
@@ -226,7 +231,7 @@ static final int hash(Object key) {
                 // 트리노드에 데이터를 추가 이미 존재한다면 해당 노드에 현재 데이터를 반환
                 e = ((TreeNode<K,V>)p).putTreeVal(this, tab, hash, key, value);
                 
-            // 일반 연결 리스트 방식 처리    
+            // 일반 연결 리스트 방식 처리   
             else {
                 for (int binCount = 0; ; ++binCount) { // binCount
                     // 현재 노드의 다음 노드가 비어 있다면
@@ -272,6 +277,12 @@ static final int hash(Object key) {
         return null;
     }
 ```
+### 왜 (n - 1) & hash를 사용하는지?  
+- HashMap의 테이블 크기(n)는 항상 2의 거듭제곱입니다.  
+- 그렇기 때문에 index = hash % n 대신 index = hash & (n - 1) 연산으로 인덱스를 계산할 수 있습니다.  
+- 이 방식은 나눗셈보다 훨씬 빠른 비트 연산으로 동작하며, 해시값의 하위 비트만을 추출하는 효과가 있습니다.  
+- 예를 들어 n = 16이면 n - 1 = 15 = 0b1111, hash의 하위 4비트만 인덱스로 사용됩니다.  
+`(n - 1) & hash는 테이블의 크기 안에서 해시값을 효율적으로 인덱스로 변환하기 위한 최적화된 공식입니다.`
 
 ---
 
@@ -394,103 +405,35 @@ static final int hash(Object key) {
     }
 ```
 
+### 왜 e.hash & oldCap을 확인하는지?
+- 리사이즈 시 기존 용량은 oldCap, 새로운 용량은 newCap = oldCap * 2입니다.
+- 이때 oldCap은 항상 2의 거듭제곱이기 때문에, e.hash & oldCap은 추가된 한 비트를 기준으로 lo/hi를 나눌 수 있습니다.
+
+```
+(e.hash & oldCap) == 0 → lo 그룹 → newTab[j] 위치로 이동
+(e.hash & oldCap) != 0 → hi 그룹 → newTab[j + oldCap] 위치로 이동
+해시값의 특정 비트를 기준으로 기존 위치에 남을지(old 인덱스), 새로운 위치로 갈지(2배 떨어진 인덱스)를 빠르게 판단할 수 있습니다.
+```
+
 > resize() 작업은 새로운 해시 테이블(Map 내부의 배열)을 생성하는 과정으로,  
 > 기본적으로 16칸짜리 버킷 배열을 만들며 시작합니다.  
 > 이후 데이터가 증가할수록 용량을 2배씩 늘려가며 리사이징이 일어납니다. 
-> 
-> 특징으로는, 기존의 테이블(Node[])의 참조를 끊고  
-> 새로운 배열을 생성한 뒤, 기존 데이터를 새 배열에 재배치(rehash)합니다.  
-> 기존 배열은 더 이상 참조되지 않기 때문에 GC의 수거 대상이 될 수 있게 조치하는 것으로 생각됩니다.  
-> 최종적으로 새로 생성된 배열을 참조하도록 table 필드를 갱신하고 리턴 해주는 것을 확인 할 수 있습니다.
+
 
 ---
 
-## putTreeVal() 동작
+### ✅ 최종 정리
 
-``` java
-// 부모 노드
-TreeNode<K,V> parent;
-// 왼쪽 자식 노드
-TreeNode<K,V> left;
-// 오른쪽 자식 노드
-TreeNode<K,V> right;
-// 이전 노드
-TreeNode<K,V> prev;
-// 현재 노드가 빨간색인지 여부(?)
-boolean red;
-final TreeNode<K,V> putTreeVal(HashMap<K,V> map, Node<K,V>[] tab, int h, K k, V v) {
-    Class<?> kc = null;
-    // 이미 탐색을 수행했는지 여부
-    boolean searched = false;
-    // 루트 노드 찾기 (부모가 있다면 root() 호출, 없으면 현재 노드가 root)
-    TreeNode<K,V> root = (parent != null) ? root() : this;
-    // 루트부터 트리 탐색 시작
-    for (TreeNode<K,V> p = root;;) {
-        int dir, ph; K pk;
-
-        // 현재 노드의 hash값과 입력값 h 비교
-        if ((ph = p.hash) > h)
-            dir = -1;  // 현재 노드의 hash가 크면 -1
-        else if (ph < h)
-            dir = 1;   // 현재 노드의 hash가 작으면 1
-        else if ((pk = p.key) == k || (k != null && k.equals(pk)))
-            return p;  // 키도 같으면 이미 존재 → 해당 노드 반환
-
-        // hash는 같지만 키는 다르고 비교 불가능한 경우
-        else if ((kc == null &&
-                (kc = comparableClassFor(k)) == null) ||
-                (dir = compareComparables(kc, k, pk)) == 0) {
-            
-            // 아직 탐색하지 않았다면
-            if (!searched) {
-                TreeNode<K,V> q, ch;
-                searched = true;
-                // 왼쪽 또는 오른쪽 하위 트리에 이미 동일한 노드가 있는지 다시 탐색
-                if (((ch = p.left) != null &&
-                        (q = ch.find(h, k, kc)) != null) ||
-                        ((ch = p.right) != null &&
-                                (q = ch.find(h, k, kc)) != null))
-                    return q;
-            }
-            // 해시코드는 같고 비교 불가능할 때, 순서를 정하기 위한 타이브레이커 적용
-            dir = tieBreakOrder(k, pk);
-        }
-        // 새로운 노드를 트리에 삽입할 위치 탐색 중
-        TreeNode<K,V> xp = p;
-        if ((p = (dir <= 0) ? p.left : p.right) == null) {
-            Node<K,V> xpn = xp.next;
-            TreeNode<K,V> x = map.newTreeNode(h, k, v, xpn);
-            // dir 기준으로 왼쪽 또는 오른쪽에 새 노드 삽입
-            if (dir <= 0)
-                xp.left = x;
-            else
-                xp.right = x;
-            // 연결 업데이트
-            xp.next = x;
-            x.parent = x.prev = xp;
-            if (xpn != null)
-                ((TreeNode<K,V>)xpn).prev = x;
-            // 균형 조정 및 루트 노드 앞으로 이동
-            moveRootToFront(tab, balanceInsertion(root, x));
-            return null;
-        }
-    }
-}
-
-```
-> `putTreeval()`은 자바의 HashMap 내부에서 사용되는 private 메서드 중 하나  
-> `HashMap`이 특정 조건에서 성능을 개선하기 위해 트리 구조데이터를 저장할 때 호출되는 메서드
-
----
-
-## 최종 정리
-> HashMap은 처음 생성될 때 16개의 버킷을 가진 Node 배열로 시작한다.  
-> 이후 데이터가 들어오면 용량을 확인해서, 기준을 초과하면 resize를 통해 버킷 수를 두 배로 늘린다.  
-> 하나의 버킷에는 여러 데이터가 LinkedList처럼 연결되어 저장되며, 같은 키가 들어오면 value를 덮어쓰고 해당 노드를 맨 뒤로 이동시킨다.  
-> 만약 한 버킷에 8개 이상의 노드가 쌓이면 성능 유지를 위해 Tree 구조로 바뀌고, 데이터가 다시 줄면 원래대로 리스트 구조로 돌아간다.
+> `HashMap`은 처음 생성될 때 16개의 버킷을 가진 Node 배열로 시작합니다.  
+> 이후 데이터가 들어오면 크기를 확인해 threshold(기본적으로 12)를 초과하는 경우 `resize()`를 통해 용량을 두 배로 늘립니다.  
+> 하나의 버킷에는 여러 노드가 LinkedList처럼 연결되어 저장되며, 동일한 키가 들어오면 기존 값을 덮어씌웁니다.  
+> 같은 해시 인덱스에 노드가 너무 많이 쌓이면 성능 저하를 막기 위해 Tree 구조로 전환됩니다 (기본 임계값: 8개 이상).  
+> 이후 노드 수가 감소하거나, 테이블 크기가 줄어들면 다시 LinkedList 구조로 전환됩니다.
 >
-> HashMap이 동시성 처리가 안된다고는 들었지만, 왜 그런지는 잘 와닿지 않았다.  
-> 직접 코드를 하나씩 보며 따라가 보니, 동기화를 해주는 부분이 보이지 않고,  
-> 특히 put 호출 시 내부에서 resize가 일어나게 되면 기존 데이터를 새 배열로 재배치하는 작업을 진행한다.    
-> 이때 다른 스레드가 동시에 put을 호출한다면, 하나는 기존 배열에 접근하고 하나는 새 배열을 사용하게 되어  
-> 꼬인 상태가 발생하고, 이 과정에서 데이터 손실에 문제가 발생할 것으로 예상된다.
+> `HashMap`이 **스레드 안전하지 않은 이유**는 내부적으로 `put`, `resize`, `remove` 등의 메서드가 **동기화되어 있지 않기 때문**입니다.  
+> 특히 `resize()` 과정에서는 기존의 데이터를 새 배열로 재배치하는데, 이때 다른 스레드가 동시에 `put()`을 호출하면  
+> 하나는 옛날 배열을 보고 있고, 하나는 새 배열을 보고 있을 수 있어 **경합과 꼬임, 데이터 손실**이 발생할 수 있습니다.  
+> 이런 이유로 **멀티스레드 환경에서는 반드시 외부 동기화(Map m = Collections.synchronizedMap(...))나 ConcurrentHashMap을 사용**해야 합니다.
+>
+> `put()` 또는 `resize()` 과정에서 인덱스를 계산할 때 `&` 연산을 사용하는데, HashMap이 항상 2의 거듭제곱 크기를 유지하기 때문에 가능한 최적화 방식입니다.  
+> 예를 들어 `(n - 1) & hash`는 `hash % n`보다 빠르게 인덱스를 계산할 수 있고, `e.hash & oldCap`은 리사이즈 도중 노드가 기존 인덱스에 남을지, 두 배 오른쪽 인덱스로 갈지를 결정하는 데 사용됩니다.
